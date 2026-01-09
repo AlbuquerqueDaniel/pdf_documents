@@ -137,6 +137,121 @@
             background: #ebf5fb;
         }
 
+        .parent-task {
+            background: #ffffff;
+            border: 2px solid #d5dce2;
+        }
+
+        .parent-task.weekly-goal {
+            border: 2px solid #3498db;
+            border-left: 4px solid #3498db;
+        }
+
+        .sub-tasks-container {
+            margin: 12px 0;
+            padding-left: 12px;
+            border-left: 2px solid #e1e8ed;
+        }
+
+        .sub-task {
+            background: #f8f9fa;
+            border: 1px solid #e1e8ed;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+            cursor: grab;
+            transition: all 0.2s;
+        }
+
+        .sub-task:last-child {
+            margin-bottom: 0;
+        }
+
+        .sub-task:hover {
+            background: #e9ecef;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .sub-task:active {
+            cursor: grabbing;
+        }
+
+        .sub-task.dragging {
+            opacity: 0.5;
+        }
+
+        .sub-task-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .sub-task-text {
+            flex: 1;
+            font-size: 14px;
+            color: #2c3e50;
+            word-wrap: break-word;
+        }
+
+        .sub-task-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .delete-subtask-btn {
+            padding: 2px 6px !important;
+            font-size: 12px !important;
+        }
+
+        .add-subtask-form {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e1e8ed;
+        }
+
+        .add-subtask-form.active {
+            display: flex;
+        }
+
+        .add-subtask-input {
+            padding: 8px;
+            border: 2px solid #e1e8ed;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 50px;
+        }
+
+        .add-subtask-input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .subtask-form-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        .completion-date {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-top: 6px;
+            font-style: italic;
+        }
+
         .task-header {
             display: flex;
             justify-content: space-between;
@@ -275,6 +390,10 @@
             background: #d5dce2;
         }
 
+        #exportBtn, #importBtn {
+            white-space: nowrap;
+        }
+
         .add-task-trigger {
             width: 100%;
             padding: 10px;
@@ -315,6 +434,9 @@
                 <input type="checkbox" id="hideOldCompleted" />
                 <label for="hideOldCompleted">Hide completed from previous weeks</label>
             </div>
+            <button class="btn btn-secondary" id="exportBtn">📥 Export Backup</button>
+            <button class="btn btn-secondary" id="importBtn">📤 Import Backup</button>
+            <input type="file" id="importFile" accept=".json" style="display: none;" />
         </div>
     </div>
 
@@ -390,6 +512,8 @@
         // Data structure
         let tasks = JSON.parse(localStorage.getItem('weeklyTasks')) || [];
         let draggedTask = null;
+        let draggedSubTask = null;
+        let dragSourceColumn = null; // Track which column the drag started from
 
         // Get current week number
         function getWeekNumber(date) {
@@ -405,13 +529,247 @@
             return getWeekNumber(new Date());
         }
 
+        // Get last Sunday (start of current week)
+        function getLastSunday() {
+            const today = new Date();
+            const day = today.getDay();
+            const diff = day === 0 ? 0 : day; // If Sunday, diff = 0, otherwise days since Sunday
+            const lastSunday = new Date(today);
+            lastSunday.setDate(today.getDate() - diff);
+            lastSunday.setHours(0, 0, 0, 0);
+            return lastSunday;
+        }
+
+        // Format date as DD/MM/YYYY
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
         // Save tasks to localStorage
         function saveTasks() {
             localStorage.setItem('weeklyTasks', JSON.stringify(tasks));
         }
 
-        // Create task element
-        function createTaskElement(task) {
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Get all sub-tasks for a parent
+        function getSubTasks(parentId) {
+            return tasks.filter(t => t.parentId === parentId);
+        }
+
+        // Get parent task
+        function getParentTask(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (task && task.parentId) {
+                return tasks.find(t => t.id === task.parentId);
+            }
+            return null;
+        }
+
+        // Create sub-task element
+        function createSubTaskElement(subTask, parentTask) {
+            const subTaskEl = document.createElement('div');
+            subTaskEl.className = 'sub-task';
+            subTaskEl.draggable = true;
+            subTaskEl.dataset.id = subTask.id;
+            subTaskEl.dataset.parentId = subTask.parentId;
+            
+            if (subTask.isWeeklyGoal) {
+                subTaskEl.style.borderLeft = '3px solid #3498db';
+            }
+            
+            const weekBadge = subTask.isWeeklyGoal ? '<span class="weekly-badge">This Week</span>' : '';
+            const completionDateHtml = subTask.completedAt ? 
+                `<div class="completion-date">Completed: ${formatDate(subTask.completedAt)}</div>` : '';
+            
+            subTaskEl.innerHTML = `
+                <div class="sub-task-content">
+                    <div class="sub-task-text">
+                        ${escapeHtml(subTask.text)}
+                        ${weekBadge ? '<div style="margin-top: 4px;">' + weekBadge + '</div>' : ''}
+                        ${completionDateHtml}
+                    </div>
+                    <div class="sub-task-actions">
+                        <button class="task-btn toggle-subtask-goal-btn" title="${subTask.isWeeklyGoal ? 'Remove from weekly goals' : 'Make weekly goal'}">${subTask.isWeeklyGoal ? '⭐' : '☆'}</button>
+                        <button class="task-btn delete-subtask-btn" title="Delete sub-task">🗑️</button>
+                    </div>
+                </div>
+            `;
+
+            // Drag events for sub-tasks
+            subTaskEl.addEventListener('dragstart', (e) => {
+                draggedSubTask = subTaskEl;
+                subTaskEl.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.stopPropagation();
+            });
+
+            subTaskEl.addEventListener('dragend', (e) => {
+                subTaskEl.classList.remove('dragging');
+                draggedSubTask = null;
+            });
+
+            // Toggle weekly goal for sub-task
+            subTaskEl.querySelector('.toggle-subtask-goal-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                subTask.isWeeklyGoal = !subTask.isWeeklyGoal;
+                subTask.weekNumber = subTask.isWeeklyGoal ? getCurrentWeek() : null;
+                saveTasks();
+                renderBoard();
+            });
+
+            // Delete sub-task
+            subTaskEl.querySelector('.delete-subtask-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm('Delete this sub-task?')) {
+                    tasks = tasks.filter(t => t.id !== subTask.id);
+                    saveTasks();
+                    renderBoard();
+                }
+            });
+
+            return subTaskEl;
+        }
+
+        // Create parent task element with its sub-tasks for a specific column
+        function createParentTaskElement(parentTask, column) {
+            const parentEl = document.createElement('div');
+            parentEl.className = 'task parent-task';
+            parentEl.draggable = true;
+            parentEl.dataset.id = parentTask.id;
+            parentEl.dataset.isParent = 'true';
+            
+            // Don't show weekly goal badge on parent if it has sub-tasks
+            const hasSubTasks = getSubTasks(parentTask.id).length > 0;
+            
+            // Get sub-tasks in this specific column
+            const subTasksInColumn = getSubTasks(parentTask.id).filter(st => st.column === column);
+            
+            let subTasksHtml = '';
+            if (subTasksInColumn.length > 0) {
+                subTasksHtml = '<div class="sub-tasks-container"></div>';
+            }
+
+            parentEl.innerHTML = `
+                <div class="task-header">
+                    <div class="task-text">📋 ${escapeHtml(parentTask.text)}</div>
+                </div>
+                ${subTasksHtml}
+                <div class="task-actions">
+                    <button class="task-btn add-subtask-btn">➕ Add sub-task</button>
+                    <button class="task-btn delete-btn">🗑️ Delete all</button>
+                </div>
+                <form class="add-subtask-form">
+                    <textarea class="add-subtask-input" placeholder="Enter sub-task description..." required></textarea>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="weekly-goal-checkbox-subtask" />
+                        <span>⭐ This Week's Goal</span>
+                    </label>
+                    <div class="subtask-form-actions">
+                        <button type="submit" class="btn btn-primary btn-small">Add Sub-task</button>
+                        <button type="button" class="btn btn-secondary btn-small cancel-subtask-btn">Cancel</button>
+                    </div>
+                </form>
+            `;
+
+            // Add sub-tasks
+            if (subTasksInColumn.length > 0) {
+                const subTasksContainer = parentEl.querySelector('.sub-tasks-container');
+                subTasksInColumn.forEach(subTask => {
+                    subTasksContainer.appendChild(createSubTaskElement(subTask, parentTask));
+                });
+            }
+
+            const addSubtaskBtn = parentEl.querySelector('.add-subtask-btn');
+            const subtaskForm = parentEl.querySelector('.add-subtask-form');
+            const subtaskInput = subtaskForm.querySelector('.add-subtask-input');
+            const cancelBtn = subtaskForm.querySelector('.cancel-subtask-btn');
+
+            // Drag events for parent task
+            parentEl.addEventListener('dragstart', (e) => {
+                draggedTask = parentEl;
+                dragSourceColumn = column; // Store which column we're dragging from
+                parentEl.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+
+            parentEl.addEventListener('dragend', (e) => {
+                parentEl.classList.remove('dragging');
+                dragSourceColumn = null; // Clear on drag end
+            });
+
+            // Show sub-task form
+            addSubtaskBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                subtaskForm.classList.add('active');
+                addSubtaskBtn.style.display = 'none';
+                subtaskInput.focus();
+            });
+
+            // Handle Ctrl+Enter in sub-task form
+            subtaskInput.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    subtaskForm.dispatchEvent(new Event('submit'));
+                }
+            });
+
+            // Submit sub-task form
+            subtaskForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const subTaskText = subtaskInput.value.trim();
+                const isWeeklyGoal = subtaskForm.querySelector('.weekly-goal-checkbox-subtask').checked;
+                
+                if (subTaskText) {
+                    const newSubTask = {
+                        id: Date.now().toString(),
+                        text: subTaskText,
+                        column: column,
+                        parentId: parentTask.id,
+                        isWeeklyGoal: isWeeklyGoal,
+                        weekNumber: isWeeklyGoal ? getCurrentWeek() : null,
+                        createdAt: new Date().toISOString(),
+                        completedAt: null
+                    };
+                    tasks.push(newSubTask);
+                    saveTasks();
+                    renderBoard();
+                }
+            });
+
+            // Cancel sub-task form
+            cancelBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                subtaskForm.classList.remove('active');
+                subtaskInput.value = '';
+                subtaskForm.querySelector('.weekly-goal-checkbox-subtask').checked = false;
+                addSubtaskBtn.style.display = 'inline-block';
+            });
+
+            // Delete parent and all sub-tasks
+            parentEl.querySelector('.delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm('Delete this parent task and all its sub-tasks?')) {
+                    tasks = tasks.filter(t => t.id !== parentTask.id && t.parentId !== parentTask.id);
+                    saveTasks();
+                    renderBoard();
+                }
+            });
+
+            return parentEl;
+        }
+
+        // Create standalone task element (tasks without parent or children)
+        function createStandaloneTaskElement(task) {
             const taskEl = document.createElement('div');
             taskEl.className = 'task';
             taskEl.draggable = true;
@@ -422,6 +780,9 @@
             }
 
             const weekBadge = task.isWeeklyGoal ? '<span class="weekly-badge">This Week</span>' : '';
+            const dateLabel = task.column === 'done' && task.completedAt ? 
+                `<div class="task-date">Completed: ${formatDate(task.completedAt)}</div>` :
+                `<div class="task-date">Created: ${formatDate(task.createdAt)}</div>`;
             
             taskEl.innerHTML = `
                 <div class="task-header">
@@ -430,19 +791,85 @@
                         ${weekBadge}
                     </div>
                 </div>
-                <div class="task-date">Created: ${new Date(task.createdAt).toLocaleDateString()}</div>
+                ${dateLabel}
                 <div class="task-actions">
+                    <button class="task-btn convert-parent-btn">➕ Add sub-tasks</button>
                     <button class="task-btn toggle-goal-btn">${task.isWeeklyGoal ? '⭐ Remove from weekly' : '⭐ Make weekly goal'}</button>
                     <button class="task-btn delete-btn">🗑️ Delete</button>
                 </div>
+                <form class="add-subtask-form">
+                    <textarea class="add-subtask-input" placeholder="Enter sub-task description..." required></textarea>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="weekly-goal-checkbox-subtask" />
+                        <span>⭐ This Week's Goal</span>
+                    </label>
+                    <div class="subtask-form-actions">
+                        <button type="submit" class="btn btn-primary btn-small">Add Sub-task</button>
+                        <button type="button" class="btn btn-secondary btn-small cancel-subtask-btn">Cancel</button>
+                    </div>
+                </form>
             `;
 
             // Drag events
             taskEl.addEventListener('dragstart', handleDragStart);
             taskEl.addEventListener('dragend', handleDragEnd);
 
+            const convertBtn = taskEl.querySelector('.convert-parent-btn');
+            const subtaskForm = taskEl.querySelector('.add-subtask-form');
+            const subtaskInput = subtaskForm.querySelector('.add-subtask-input');
+            const cancelBtn = subtaskForm.querySelector('.cancel-subtask-btn');
+
+            // Show form when clicking "Add sub-tasks"
+            convertBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                subtaskForm.classList.add('active');
+                convertBtn.style.display = 'none';
+                subtaskInput.focus();
+            });
+
+            // Handle Ctrl+Enter in sub-task form
+            subtaskInput.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    subtaskForm.dispatchEvent(new Event('submit'));
+                }
+            });
+
+            // Submit sub-task form
+            subtaskForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const subTaskText = subtaskInput.value.trim();
+                const isWeeklyGoal = subtaskForm.querySelector('.weekly-goal-checkbox-subtask').checked;
+                
+                if (subTaskText) {
+                    const newSubTask = {
+                        id: Date.now().toString(),
+                        text: subTaskText,
+                        column: task.column,
+                        parentId: task.id,
+                        isWeeklyGoal: isWeeklyGoal,
+                        weekNumber: isWeeklyGoal ? getCurrentWeek() : null,
+                        createdAt: new Date().toISOString(),
+                        completedAt: task.column === 'done' ? new Date().toISOString() : null
+                    };
+                    tasks.push(newSubTask);
+                    saveTasks();
+                    renderBoard();
+                }
+            });
+
+            // Cancel sub-task form
+            cancelBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                subtaskForm.classList.remove('active');
+                subtaskInput.value = '';
+                subtaskForm.querySelector('.weekly-goal-checkbox-subtask').checked = false;
+                convertBtn.style.display = 'inline-block';
+            });
+
             // Toggle weekly goal
-            taskEl.querySelector('.toggle-goal-btn').addEventListener('click', () => {
+            taskEl.querySelector('.toggle-goal-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
                 task.isWeeklyGoal = !task.isWeeklyGoal;
                 task.weekNumber = task.isWeeklyGoal ? getCurrentWeek() : null;
                 saveTasks();
@@ -450,7 +877,8 @@
             });
 
             // Delete task
-            taskEl.querySelector('.delete-btn').addEventListener('click', () => {
+            taskEl.querySelector('.delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
                 if (confirm('Delete this task?')) {
                     tasks = tasks.filter(t => t.id !== task.id);
                     saveTasks();
@@ -461,17 +889,10 @@
             return taskEl;
         }
 
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
         // Render the board
         function renderBoard() {
             const hideOldCompleted = document.getElementById('hideOldCompleted').checked;
-            const currentWeek = getCurrentWeek();
+            const lastSunday = getLastSunday();
 
             ['todo', 'inprogress', 'done'].forEach(column => {
                 const container = document.querySelector(`.tasks[data-column="${column}"]`);
@@ -479,26 +900,78 @@
                 
                 container.innerHTML = '';
                 
-                let columnTasks = tasks.filter(t => t.column === column);
+                // Get all parent tasks (tasks without a parentId)
+                let parentTasks = tasks.filter(t => !t.parentId);
                 
-                // Filter out old completed tasks if toggle is on
+                // For each parent, check if it has sub-tasks in this column
+                const parentsToShow = [];
+                parentTasks.forEach(parent => {
+                    let subTasksInColumn = getSubTasks(parent.id).filter(st => st.column === column);
+                    
+                    // Filter out old completed sub-tasks if toggle is on
+                    if (hideOldCompleted && column === 'done') {
+                        subTasksInColumn = subTasksInColumn.filter(st => {
+                            if (!st.completedAt) return true;
+                            const completedDate = new Date(st.completedAt);
+                            return completedDate >= lastSunday;
+                        });
+                    }
+                    
+                    if (subTasksInColumn.length > 0) {
+                        parentsToShow.push(parent);
+                    }
+                });
+
+                // Get standalone tasks (no parent, no children) in this column
+                let standaloneTasks = parentTasks.filter(parent => {
+                    const hasChildren = getSubTasks(parent.id).length > 0;
+                    return !hasChildren && parent.column === column;
+                });
+
+                // Filter out old completed standalone tasks if toggle is on
                 if (hideOldCompleted && column === 'done') {
-                    columnTasks = columnTasks.filter(t => t.weekNumber === currentWeek);
+                    standaloneTasks = standaloneTasks.filter(t => {
+                        if (!t.completedAt) return true;
+                        const completedDate = new Date(t.completedAt);
+                        return completedDate >= lastSunday;
+                    });
                 }
 
-                if (columnTasks.length === 0) {
+                // Sort tasks based on column
+                if (column === 'done') {
+                    // Sort by completion date (newest first)
+                    standaloneTasks.sort((a, b) => {
+                        const dateA = a.completedAt ? new Date(a.completedAt) : new Date(a.createdAt);
+                        const dateB = b.completedAt ? new Date(b.completedAt) : new Date(b.createdAt);
+                        return dateB - dateA;
+                    });
+                    // Parents with sub-tasks - we'll keep them in order but sub-tasks are sorted by completion
+                } else {
+                    // Sort by creation date (oldest first)
+                    standaloneTasks.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                    parentsToShow.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                }
+
+                // Render parent tasks with their sub-tasks
+                parentsToShow.forEach(parent => {
+                    container.appendChild(createParentTaskElement(parent, column));
+                });
+
+                // Render standalone tasks
+                standaloneTasks.forEach(task => {
+                    container.appendChild(createStandaloneTaskElement(task));
+                });
+
+                const totalCount = parentsToShow.length + standaloneTasks.length;
+                if (totalCount === 0) {
                     container.innerHTML = '<div class="empty-state">No tasks yet</div>';
                 }
 
-                columnTasks.forEach(task => {
-                    container.appendChild(createTaskElement(task));
-                });
-
-                countEl.textContent = columnTasks.length;
+                countEl.textContent = totalCount;
             });
         }
 
-        // Drag and drop handlers
+        // Drag and drop handlers for standalone tasks
         function handleDragStart(e) {
             draggedTask = this;
             this.classList.add('dragging');
@@ -507,6 +980,7 @@
 
         function handleDragEnd(e) {
             this.classList.remove('dragging');
+            dragSourceColumn = null; // Clear source column
             document.querySelectorAll('.tasks').forEach(col => {
                 col.classList.remove('drag-over');
             });
@@ -521,17 +995,91 @@
 
             column.addEventListener('drop', (e) => {
                 e.preventDefault();
-                if (draggedTask) {
+                
+                const newColumn = column.dataset.column;
+                
+                // Handle sub-task drop
+                if (draggedSubTask) {
+                    const subTaskId = draggedSubTask.dataset.id;
+                    const subTask = tasks.find(t => t.id === subTaskId);
+                    
+                    if (subTask) {
+                        const oldColumn = subTask.column;
+                        subTask.column = newColumn;
+                        
+                        // Set completion date when moving to done
+                        if (newColumn === 'done' && oldColumn !== 'done') {
+                            subTask.completedAt = new Date().toISOString();
+                        }
+                        // Clear completion date when moving out of done
+                        if (oldColumn === 'done' && newColumn !== 'done') {
+                            subTask.completedAt = null;
+                        }
+                        
+                        saveTasks();
+                        renderBoard();
+                    }
+                }
+                // Handle task drop (could be standalone or parent)
+                else if (draggedTask) {
                     const taskId = draggedTask.dataset.id;
-                    const newColumn = column.dataset.column;
                     const task = tasks.find(t => t.id === taskId);
+                    const isParent = draggedTask.dataset.isParent === 'true';
                     
                     if (task) {
-                        task.column = newColumn;
+                        const oldColumn = task.column;
                         
-                        // If moved to done and is a weekly goal, keep the week marker
-                        if (newColumn === 'done' && task.isWeeklyGoal && !task.weekNumber) {
-                            task.weekNumber = getCurrentWeek();
+                        // If it's a parent task, move all sub-tasks too
+                        if (isParent) {
+                            const allSubTasks = getSubTasks(task.id);
+                            
+                            // Use the source column we captured during dragstart
+                            const sourceColumn = dragSourceColumn;
+                            
+                            // Only move sub-tasks that were in the source column
+                            const subTasksToMove = allSubTasks.filter(st => st.column === sourceColumn);
+                            
+                            // Check if any sub-tasks being moved are currently in Done and we're moving out
+                            const hasCompletedSubTasks = subTasksToMove.some(st => st.column === 'done');
+                            
+                            // Confirm if moving completed sub-tasks out of done
+                            if (hasCompletedSubTasks && newColumn !== 'done') {
+                                const count = subTasksToMove.filter(st => st.column === 'done').length;
+                                if (!confirm(`This will move ${count} sub-task${count > 1 ? 's' : ''} out of Done and mark them as not completed. Are you sure?`)) {
+                                    return; // Cancel the move
+                                }
+                            }
+                            
+                            subTasksToMove.forEach(subTask => {
+                                const subOldColumn = subTask.column;
+                                subTask.column = newColumn;
+                                
+                                // Set completion date when moving to done
+                                if (newColumn === 'done' && subOldColumn !== 'done') {
+                                    subTask.completedAt = new Date().toISOString();
+                                }
+                                // Clear completion date when moving out of done
+                                if (subOldColumn === 'done' && newColumn !== 'done') {
+                                    subTask.completedAt = null;
+                                }
+                            });
+                        } else {
+                            // Standalone task
+                            task.column = newColumn;
+                            
+                            // Set completion date when moving to done
+                            if (newColumn === 'done' && oldColumn !== 'done') {
+                                task.completedAt = new Date().toISOString();
+                            }
+                            // Clear completion date when moving out of done
+                            if (oldColumn === 'done' && newColumn !== 'done') {
+                                task.completedAt = null;
+                            }
+                            
+                            // If moved to done and is a weekly goal, keep the week marker
+                            if (newColumn === 'done' && task.isWeeklyGoal && !task.weekNumber) {
+                                task.weekNumber = getCurrentWeek();
+                            }
                         }
                         
                         saveTasks();
@@ -553,10 +1101,19 @@
         });
 
         document.querySelectorAll('.add-task-form').forEach(form => {
+            const input = form.querySelector('.add-task-input');
+            
+            // Handle Ctrl+Enter
+            input.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    form.dispatchEvent(new Event('submit'));
+                }
+            });
+
             form.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const column = form.dataset.column;
-                const input = form.querySelector('.add-task-input');
                 const isWeeklyGoal = form.querySelector('.weekly-goal-checkbox').checked;
                 
                 const newTask = {
@@ -565,7 +1122,8 @@
                     column: column,
                     isWeeklyGoal: isWeeklyGoal,
                     weekNumber: isWeeklyGoal ? getCurrentWeek() : null,
-                    createdAt: new Date().toISOString()
+                    createdAt: new Date().toISOString(),
+                    completedAt: column === 'done' ? new Date().toISOString() : null
                 };
                 
                 tasks.push(newTask);
@@ -574,7 +1132,7 @@
                 
                 // Reset form
                 form.classList.remove('active');
-                form.querySelector('.add-task-input').value = '';
+                input.value = '';
                 form.querySelector('.weekly-goal-checkbox').checked = false;
                 document.querySelector(`.add-task-trigger[data-column="${column}"]`).style.display = 'block';
             });
@@ -582,7 +1140,7 @@
             form.querySelector('.cancel-btn').addEventListener('click', () => {
                 const column = form.dataset.column;
                 form.classList.remove('active');
-                form.querySelector('.add-task-input').value = '';
+                input.value = '';
                 form.querySelector('.weekly-goal-checkbox').checked = false;
                 document.querySelector(`.add-task-trigger[data-column="${column}"]`).style.display = 'block';
             });
@@ -591,8 +1149,94 @@
         // Toggle hide old completed
         document.getElementById('hideOldCompleted').addEventListener('change', renderBoard);
 
+        // Export functionality
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            exportTasks();
+        });
+
+        // Import functionality
+        document.getElementById('importBtn').addEventListener('click', () => {
+            document.getElementById('importFile').click();
+        });
+
+        document.getElementById('importFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const importedTasks = JSON.parse(event.target.result);
+                        if (Array.isArray(importedTasks)) {
+                            if (confirm(`This will replace your current tasks with ${importedTasks.length} imported tasks. Continue?`)) {
+                                tasks = importedTasks;
+                                saveTasks();
+                                renderBoard();
+                                alert('Tasks imported successfully!');
+                            }
+                        } else {
+                            alert('Invalid backup file format.');
+                        }
+                    } catch (error) {
+                        alert('Error reading backup file: ' + error.message);
+                    }
+                    // Reset file input
+                    e.target.value = '';
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function exportTasks() {
+            const dataStr = JSON.stringify(tasks, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            
+            // Create filename with current date
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            link.download = `tasks-backup-${dateStr}.json`;
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            // Update last export date
+            localStorage.setItem('lastExportDate', now.toISOString());
+        }
+
+        // Check if we should prompt for weekly export
+        function checkWeeklyExportPrompt() {
+            const lastExport = localStorage.getItem('lastExportDate');
+            const lastSunday = getLastSunday();
+            
+            if (!lastExport) {
+                // First time user - don't prompt immediately
+                return;
+            }
+            
+            const lastExportDate = new Date(lastExport);
+            
+            // If last export was before last Sunday, prompt for backup
+            if (lastExportDate < lastSunday) {
+                setTimeout(() => {
+                    if (confirm('📥 It\'s a new week! Would you like to export a backup of your tasks?')) {
+                        exportTasks();
+                    } else {
+                        // Mark as reminded even if they decline
+                        localStorage.setItem('lastExportDate', new Date().toISOString());
+                    }
+                }, 1000); // Delay 1 second to let the page load
+            }
+        }
+
         // Initial render
         renderBoard();
+        
+        // Check for weekly export prompt
+        checkWeeklyExportPrompt();
     </script>
 </body>
 </html>
