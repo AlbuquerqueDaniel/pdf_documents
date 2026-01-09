@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weekly Todo Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+            color: #2c3e50;
+        }
+
+        .header {
+            max-width: 1400px;
+            margin: 0 auto 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: #2c3e50;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: white;
+            padding: 8px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .toggle-container input[type="checkbox"] {
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+        }
+
+        .toggle-container label {
+            cursor: pointer;
+            font-size: 14px;
+            user-select: none;
+        }
+
+        .board {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .column {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            min-height: 400px;
+        }
+
+        .column-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e1e8ed;
+        }
+
+        .column-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .task-count {
+            background: #e1e8ed;
+            color: #5a6c7d;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .tasks {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 100px;
+        }
+
+        .task {
+            background: #f8f9fa;
+            border: 1px solid #e1e8ed;
+            border-radius: 8px;
+            padding: 14px;
+            cursor: grab;
+            transition: all 0.2s;
+        }
+
+        .task:active {
+            cursor: grabbing;
+        }
+
+        .task:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .task.dragging {
+            opacity: 0.5;
+            transform: rotate(2deg);
+        }
+
+        .task.weekly-goal {
+            border-left: 4px solid #3498db;
+            background: #ebf5fb;
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+            gap: 10px;
+        }
+
+        .task-text {
+            flex: 1;
+            font-size: 15px;
+            color: #2c3e50;
+            word-wrap: break-word;
+        }
+
+        .task-badges {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .weekly-badge {
+            background: #3498db;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .task-date {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-top: 8px;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e1e8ed;
+        }
+
+        .task-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            color: #7f8c8d;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .task-btn:hover {
+            background: #e1e8ed;
+            color: #2c3e50;
+        }
+
+        .add-task-container {
+            margin-top: 15px;
+        }
+
+        .add-task-form {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .add-task-form.active {
+            display: flex;
+        }
+
+        .add-task-input {
+            padding: 10px;
+            border: 2px solid #e1e8ed;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .add-task-input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #5a6c7d;
+            cursor: pointer;
+        }
+
+        .checkbox-label input {
+            cursor: pointer;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-secondary {
+            background: #e1e8ed;
+            color: #5a6c7d;
+        }
+
+        .btn-secondary:hover {
+            background: #d5dce2;
+        }
+
+        .add-task-trigger {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #d5dce2;
+            background: transparent;
+            color: #7f8c8d;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .add-task-trigger:hover {
+            border-color: #3498db;
+            color: #3498db;
+            background: #f8f9fa;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #95a5a6;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .board {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📋 Weekly Todo Tracker</h1>
+        <div class="controls">
+            <div class="toggle-container">
+                <input type="checkbox" id="hideOldCompleted" />
+                <label for="hideOldCompleted">Hide completed from previous weeks</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="board">
+        <div class="column">
+            <div class="column-header">
+                <span class="column-title">📝 To Do</span>
+                <span class="task-count" data-column="todo">0</span>
+            </div>
+            <div class="tasks" data-column="todo"></div>
+            <div class="add-task-container">
+                <button class="add-task-trigger" data-column="todo">+ Add task</button>
+                <form class="add-task-form" data-column="todo">
+                    <textarea class="add-task-input" placeholder="Enter task description..." required></textarea>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="weekly-goal-checkbox" />
+                        <span>⭐ This Week's Goal</span>
+                    </label>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Add Task</button>
+                        <button type="button" class="btn btn-secondary cancel-btn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="column">
+            <div class="column-header">
+                <span class="column-title">🚀 In Progress</span>
+                <span class="task-count" data-column="inprogress">0</span>
+            </div>
+            <div class="tasks" data-column="inprogress"></div>
+            <div class="add-task-container">
+                <button class="add-task-trigger" data-column="inprogress">+ Add task</button>
+                <form class="add-task-form" data-column="inprogress">
+                    <textarea class="add-task-input" placeholder="Enter task description..." required></textarea>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="weekly-goal-checkbox" />
+                        <span>⭐ This Week's Goal</span>
+                    </label>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Add Task</button>
+                        <button type="button" class="btn btn-secondary cancel-btn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="column">
+            <div class="column-header">
+                <span class="column-title">✅ Done</span>
+                <span class="task-count" data-column="done">0</span>
+            </div>
+            <div class="tasks" data-column="done"></div>
+            <div class="add-task-container">
+                <button class="add-task-trigger" data-column="done">+ Add task</button>
+                <form class="add-task-form" data-column="done">
+                    <textarea class="add-task-input" placeholder="Enter task description..." required></textarea>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="weekly-goal-checkbox" />
+                        <span>⭐ This Week's Goal</span>
+                    </label>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Add Task</button>
+                        <button type="button" class="btn btn-secondary cancel-btn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data structure
+        let tasks = JSON.parse(localStorage.getItem('weeklyTasks')) || [];
+        let draggedTask = null;
+
+        // Get current week number
+        function getWeekNumber(date) {
+            const d = new Date(date);
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+            const yearStart = new Date(d.getFullYear(), 0, 1);
+            const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+            return `${d.getFullYear()}-W${weekNo}`;
+        }
+
+        function getCurrentWeek() {
+            return getWeekNumber(new Date());
+        }
+
+        // Save tasks to localStorage
+        function saveTasks() {
+            localStorage.setItem('weeklyTasks', JSON.stringify(tasks));
+        }
+
+        // Create task element
+        function createTaskElement(task) {
+            const taskEl = document.createElement('div');
+            taskEl.className = 'task';
+            taskEl.draggable = true;
+            taskEl.dataset.id = task.id;
+            
+            if (task.isWeeklyGoal) {
+                taskEl.classList.add('weekly-goal');
+            }
+
+            const weekBadge = task.isWeeklyGoal ? '<span class="weekly-badge">This Week</span>' : '';
+            
+            taskEl.innerHTML = `
+                <div class="task-header">
+                    <div class="task-text">${escapeHtml(task.text)}</div>
+                    <div class="task-badges">
+                        ${weekBadge}
+                    </div>
+                </div>
+                <div class="task-date">Created: ${new Date(task.createdAt).toLocaleDateString()}</div>
+                <div class="task-actions">
+                    <button class="task-btn toggle-goal-btn">${task.isWeeklyGoal ? '⭐ Remove from weekly' : '⭐ Make weekly goal'}</button>
+                    <button class="task-btn delete-btn">🗑️ Delete</button>
+                </div>
+            `;
+
+            // Drag events
+            taskEl.addEventListener('dragstart', handleDragStart);
+            taskEl.addEventListener('dragend', handleDragEnd);
+
+            // Toggle weekly goal
+            taskEl.querySelector('.toggle-goal-btn').addEventListener('click', () => {
+                task.isWeeklyGoal = !task.isWeeklyGoal;
+                task.weekNumber = task.isWeeklyGoal ? getCurrentWeek() : null;
+                saveTasks();
+                renderBoard();
+            });
+
+            // Delete task
+            taskEl.querySelector('.delete-btn').addEventListener('click', () => {
+                if (confirm('Delete this task?')) {
+                    tasks = tasks.filter(t => t.id !== task.id);
+                    saveTasks();
+                    renderBoard();
+                }
+            });
+
+            return taskEl;
+        }
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Render the board
+        function renderBoard() {
+            const hideOldCompleted = document.getElementById('hideOldCompleted').checked;
+            const currentWeek = getCurrentWeek();
+
+            ['todo', 'inprogress', 'done'].forEach(column => {
+                const container = document.querySelector(`.tasks[data-column="${column}"]`);
+                const countEl = document.querySelector(`.task-count[data-column="${column}"]`);
+                
+                container.innerHTML = '';
+                
+                let columnTasks = tasks.filter(t => t.column === column);
+                
+                // Filter out old completed tasks if toggle is on
+                if (hideOldCompleted && column === 'done') {
+                    columnTasks = columnTasks.filter(t => t.weekNumber === currentWeek);
+                }
+
+                if (columnTasks.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No tasks yet</div>';
+                }
+
+                columnTasks.forEach(task => {
+                    container.appendChild(createTaskElement(task));
+                });
+
+                countEl.textContent = columnTasks.length;
+            });
+        }
+
+        // Drag and drop handlers
+        function handleDragStart(e) {
+            draggedTask = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragEnd(e) {
+            this.classList.remove('dragging');
+            document.querySelectorAll('.tasks').forEach(col => {
+                col.classList.remove('drag-over');
+            });
+        }
+
+        // Setup drag and drop for columns
+        document.querySelectorAll('.tasks').forEach(column => {
+            column.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            });
+
+            column.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (draggedTask) {
+                    const taskId = draggedTask.dataset.id;
+                    const newColumn = column.dataset.column;
+                    const task = tasks.find(t => t.id === taskId);
+                    
+                    if (task) {
+                        task.column = newColumn;
+                        
+                        // If moved to done and is a weekly goal, keep the week marker
+                        if (newColumn === 'done' && task.isWeeklyGoal && !task.weekNumber) {
+                            task.weekNumber = getCurrentWeek();
+                        }
+                        
+                        saveTasks();
+                        renderBoard();
+                    }
+                }
+            });
+        });
+
+        // Add task form handling
+        document.querySelectorAll('.add-task-trigger').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const column = btn.dataset.column;
+                const form = document.querySelector(`.add-task-form[data-column="${column}"]`);
+                form.classList.add('active');
+                btn.style.display = 'none';
+                form.querySelector('.add-task-input').focus();
+            });
+        });
+
+        document.querySelectorAll('.add-task-form').forEach(form => {
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const column = form.dataset.column;
+                const input = form.querySelector('.add-task-input');
+                const isWeeklyGoal = form.querySelector('.weekly-goal-checkbox').checked;
+                
+                const newTask = {
+                    id: Date.now().toString(),
+                    text: input.value.trim(),
+                    column: column,
+                    isWeeklyGoal: isWeeklyGoal,
+                    weekNumber: isWeeklyGoal ? getCurrentWeek() : null,
+                    createdAt: new Date().toISOString()
+                };
+                
+                tasks.push(newTask);
+                saveTasks();
+                renderBoard();
+                
+                // Reset form
+                form.classList.remove('active');
+                form.querySelector('.add-task-input').value = '';
+                form.querySelector('.weekly-goal-checkbox').checked = false;
+                document.querySelector(`.add-task-trigger[data-column="${column}"]`).style.display = 'block';
+            });
+
+            form.querySelector('.cancel-btn').addEventListener('click', () => {
+                const column = form.dataset.column;
+                form.classList.remove('active');
+                form.querySelector('.add-task-input').value = '';
+                form.querySelector('.weekly-goal-checkbox').checked = false;
+                document.querySelector(`.add-task-trigger[data-column="${column}"]`).style.display = 'block';
+            });
+        });
+
+        // Toggle hide old completed
+        document.getElementById('hideOldCompleted').addEventListener('change', renderBoard);
+
+        // Initial render
+        renderBoard();
+    </script>
+</body>
+</html>
