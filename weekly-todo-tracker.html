@@ -1186,17 +1186,43 @@
             }
         });
 
-        function exportTasks() {
+        async function exportTasks() {
             const dataStr = JSON.stringify(tasks, null, 2);
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const filename = `tasks-backup-${dateStr}.json`;
+            
+            // Try to use the File System Access API (allows choosing save location)
+            if ('showSaveFilePicker' in window) {
+                try {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: filename,
+                        types: [{
+                            description: 'JSON Files',
+                            accept: { 'application/json': ['.json'] }
+                        }]
+                    });
+                    const writable = await handle.createWritable();
+                    await writable.write(dataStr);
+                    await writable.close();
+                    
+                    // Update last export date
+                    localStorage.setItem('lastExportDate', now.toISOString());
+                    return;
+                } catch (err) {
+                    // User cancelled or API not available, fall back to download
+                    if (err.name === 'AbortError') {
+                        return; // User cancelled, don't update lastExportDate
+                    }
+                }
+            }
+            
+            // Fallback: standard download (goes to Downloads folder)
             const dataBlob = new Blob([dataStr], { type: 'application/json' });
             const url = URL.createObjectURL(dataBlob);
             const link = document.createElement('a');
             link.href = url;
-            
-            // Create filename with current date
-            const now = new Date();
-            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            link.download = `tasks-backup-${dateStr}.json`;
+            link.download = filename;
             
             document.body.appendChild(link);
             link.click();
