@@ -514,6 +514,7 @@
         let draggedTask = null;
         let draggedSubTask = null;
         let dragSourceColumn = null; // Track which column the drag started from
+        let autoScrollInterval = null; // For auto-scroll during drag
 
         // Get current week number
         function getWeekNumber(date) {
@@ -981,10 +982,60 @@
         function handleDragEnd(e) {
             this.classList.remove('dragging');
             dragSourceColumn = null; // Clear source column
+            stopAutoScroll(); // Stop auto-scrolling when drag ends
             document.querySelectorAll('.tasks').forEach(col => {
                 col.classList.remove('drag-over');
             });
         }
+
+        // Auto-scroll functionality during drag
+        function startAutoScroll(e) {
+            const scrollZone = 80; // Pixels from edge to trigger scroll
+            const scrollSpeed = 15; // Pixels per frame
+            const mouseY = e.clientY;
+            const windowHeight = window.innerHeight;
+
+            stopAutoScroll(); // Clear any existing interval
+
+            if (mouseY < scrollZone) {
+                // Scroll up
+                autoScrollInterval = setInterval(() => {
+                    window.scrollBy(0, -scrollSpeed);
+                }, 16);
+            } else if (mouseY > windowHeight - scrollZone) {
+                // Scroll down
+                autoScrollInterval = setInterval(() => {
+                    window.scrollBy(0, scrollSpeed);
+                }, 16);
+            }
+        }
+
+        function stopAutoScroll() {
+            if (autoScrollInterval) {
+                clearInterval(autoScrollInterval);
+                autoScrollInterval = null;
+            }
+        }
+
+        // Global drag event listener for auto-scroll
+        document.addEventListener('drag', (e) => {
+            if (draggedTask || draggedSubTask) {
+                // e.clientY can be 0 during drag, use stored position from dragover
+                if (e.clientY !== 0) {
+                    startAutoScroll(e);
+                }
+            }
+        });
+
+        document.addEventListener('dragover', (e) => {
+            if (draggedTask || draggedSubTask) {
+                startAutoScroll(e);
+            }
+        });
+
+        document.addEventListener('dragend', () => {
+            stopAutoScroll();
+        });
 
         // Setup drag and drop for columns
         document.querySelectorAll('.tasks').forEach(column => {
