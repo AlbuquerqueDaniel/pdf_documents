@@ -419,6 +419,91 @@
             font-size: 14px;
         }
 
+        .replies-container {
+            margin-top: 10px;
+            padding-left: 12px;
+            border-left: 2px solid #d4a574;
+        }
+
+        .reply {
+            background: #fef9f3;
+            border: 1px solid #e8d5c4;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #5d4e37;
+        }
+
+        .reply:last-child {
+            margin-bottom: 0;
+        }
+
+        .reply-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .reply-text {
+            flex: 1;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .reply-date {
+            font-size: 11px;
+            color: #a08060;
+            margin-top: 6px;
+            font-style: italic;
+        }
+
+        .reply-actions {
+            flex-shrink: 0;
+        }
+
+        .delete-reply-btn {
+            padding: 2px 6px !important;
+            font-size: 11px !important;
+            color: #a08060 !important;
+        }
+
+        .delete-reply-btn:hover {
+            color: #5d4e37 !important;
+        }
+
+        .add-reply-form {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #fef9f3;
+            border-radius: 6px;
+            border: 1px solid #e8d5c4;
+        }
+
+        .add-reply-form.active {
+            display: flex;
+        }
+
+        .add-reply-input {
+            padding: 8px;
+            border: 2px solid #e8d5c4;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 50px;
+            background: white;
+        }
+
+        .add-reply-input:focus {
+            outline: none;
+            border-color: #d4a574;
+        }
+
         @media (max-width: 768px) {
             .board {
                 grid-template-columns: 1fr;
@@ -514,7 +599,6 @@
         let draggedTask = null;
         let draggedSubTask = null;
         let dragSourceColumn = null; // Track which column the drag started from
-        let autoScrollInterval = null; // For auto-scroll during drag
 
         // Get current week number
         function getWeekNumber(date) {
@@ -583,15 +667,32 @@
             subTaskEl.draggable = true;
             subTaskEl.dataset.id = subTask.id;
             subTaskEl.dataset.parentId = subTask.parentId;
-            
+
             if (subTask.isWeeklyGoal) {
                 subTaskEl.style.borderLeft = '3px solid #3498db';
             }
-            
+
             const weekBadge = subTask.isWeeklyGoal ? '<span class="weekly-badge">This Week</span>' : '';
-            const completionDateHtml = subTask.completedAt ? 
+            const completionDateHtml = subTask.completedAt ?
                 `<div class="completion-date">Completed: ${formatDate(subTask.completedAt)}</div>` : '';
-            
+
+            // Create replies HTML for subtask
+            let repliesHtml = '';
+            if (subTask.replies && subTask.replies.length > 0) {
+                const replies = subTask.replies.map((reply, index) => `
+                    <div class="reply" data-reply-index="${index}">
+                        <div class="reply-header">
+                            <div class="reply-text">${escapeHtml(reply.text)}</div>
+                            <div class="reply-actions">
+                                <button class="task-btn delete-reply-btn" data-reply-index="${index}" title="Delete reply">🗑️</button>
+                            </div>
+                        </div>
+                        <div class="reply-date">${formatDate(reply.createdAt)}</div>
+                    </div>
+                `).join('');
+                repliesHtml = `<div class="replies-container" style="margin-top: 8px; margin-left: 0;">${replies}</div>`;
+            }
+
             subTaskEl.innerHTML = `
                 <div class="sub-task-content">
                     <div class="sub-task-text">
@@ -600,10 +701,19 @@
                         ${completionDateHtml}
                     </div>
                     <div class="sub-task-actions">
+                        <button class="task-btn reply-subtask-btn" title="Add reply">💬</button>
                         <button class="task-btn toggle-subtask-goal-btn" title="${subTask.isWeeklyGoal ? 'Remove from weekly goals' : 'Make weekly goal'}">${subTask.isWeeklyGoal ? '⭐' : '☆'}</button>
                         <button class="task-btn delete-subtask-btn" title="Delete sub-task">🗑️</button>
                     </div>
                 </div>
+                ${repliesHtml}
+                <form class="add-reply-form">
+                    <textarea class="add-reply-input" placeholder="Enter your reply/findings..." required></textarea>
+                    <div class="subtask-form-actions">
+                        <button type="submit" class="btn btn-primary btn-small">Add Reply</button>
+                        <button type="button" class="btn btn-secondary btn-small cancel-reply-btn">Cancel</button>
+                    </div>
+                </form>
             `;
 
             // Drag events for sub-tasks
@@ -617,6 +727,61 @@
             subTaskEl.addEventListener('dragend', (e) => {
                 subTaskEl.classList.remove('dragging');
                 draggedSubTask = null;
+            });
+
+            // Reply functionality for subtask
+            const replyBtn = subTaskEl.querySelector('.reply-subtask-btn');
+            const replyForm = subTaskEl.querySelector('.add-reply-form');
+            const replyInput = replyForm.querySelector('.add-reply-input');
+            const cancelReplyBtn = replyForm.querySelector('.cancel-reply-btn');
+
+            replyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                replyForm.classList.add('active');
+                replyBtn.style.display = 'none';
+                replyInput.focus();
+            });
+
+            replyInput.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    replyForm.dispatchEvent(new Event('submit'));
+                }
+            });
+
+            replyForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const replyText = replyInput.value.trim();
+
+                if (replyText) {
+                    if (!subTask.replies) subTask.replies = [];
+                    subTask.replies.push({
+                        text: replyText,
+                        createdAt: new Date().toISOString()
+                    });
+                    saveTasks();
+                    renderBoard();
+                }
+            });
+
+            cancelReplyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                replyForm.classList.remove('active');
+                replyInput.value = '';
+                replyBtn.style.display = 'inline-block';
+            });
+
+            // Delete reply buttons for subtask
+            subTaskEl.querySelectorAll('.delete-reply-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const replyIndex = parseInt(btn.dataset.replyIndex);
+                    if (confirm('Delete this reply?')) {
+                        subTask.replies.splice(replyIndex, 1);
+                        saveTasks();
+                        renderBoard();
+                    }
+                });
             });
 
             // Toggle weekly goal for sub-task
@@ -642,18 +807,27 @@
         }
 
         // Create parent task element with its sub-tasks for a specific column
-        function createParentTaskElement(parentTask, column) {
+        function createParentTaskElement(parentTask, column, hideOldCompleted, lastSunday) {
             const parentEl = document.createElement('div');
             parentEl.className = 'task parent-task';
             parentEl.draggable = true;
             parentEl.dataset.id = parentTask.id;
             parentEl.dataset.isParent = 'true';
-            
+
             // Don't show weekly goal badge on parent if it has sub-tasks
             const hasSubTasks = getSubTasks(parentTask.id).length > 0;
-            
+
             // Get sub-tasks in this specific column
-            const subTasksInColumn = getSubTasks(parentTask.id).filter(st => st.column === column);
+            let subTasksInColumn = getSubTasks(parentTask.id).filter(st => st.column === column);
+
+            // Filter out old completed sub-tasks if toggle is on
+            if (hideOldCompleted && column === 'done') {
+                subTasksInColumn = subTasksInColumn.filter(st => {
+                    if (!st.completedAt) return true;
+                    const completedDate = new Date(st.completedAt);
+                    return completedDate >= lastSunday;
+                });
+            }
             
             let subTasksHtml = '';
             if (subTasksInColumn.length > 0) {
@@ -769,22 +943,42 @@
             return parentEl;
         }
 
+        // Create replies HTML for a task
+        function createRepliesHtml(task) {
+            if (!task.replies || task.replies.length === 0) return '';
+
+            const repliesHtml = task.replies.map((reply, index) => `
+                <div class="reply" data-reply-index="${index}">
+                    <div class="reply-header">
+                        <div class="reply-text">${escapeHtml(reply.text)}</div>
+                        <div class="reply-actions">
+                            <button class="task-btn delete-reply-btn" data-reply-index="${index}" title="Delete reply">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="reply-date">${formatDate(reply.createdAt)}</div>
+                </div>
+            `).join('');
+
+            return `<div class="replies-container">${repliesHtml}</div>`;
+        }
+
         // Create standalone task element (tasks without parent or children)
         function createStandaloneTaskElement(task) {
             const taskEl = document.createElement('div');
             taskEl.className = 'task';
             taskEl.draggable = true;
             taskEl.dataset.id = task.id;
-            
+
             if (task.isWeeklyGoal) {
                 taskEl.classList.add('weekly-goal');
             }
 
             const weekBadge = task.isWeeklyGoal ? '<span class="weekly-badge">This Week</span>' : '';
-            const dateLabel = task.column === 'done' && task.completedAt ? 
+            const dateLabel = task.column === 'done' && task.completedAt ?
                 `<div class="task-date">Completed: ${formatDate(task.completedAt)}</div>` :
                 `<div class="task-date">Created: ${formatDate(task.createdAt)}</div>`;
-            
+            const repliesHtml = createRepliesHtml(task);
+
             taskEl.innerHTML = `
                 <div class="task-header">
                     <div class="task-text">${escapeHtml(task.text)}</div>
@@ -793,11 +987,20 @@
                     </div>
                 </div>
                 ${dateLabel}
+                ${repliesHtml}
                 <div class="task-actions">
+                    <button class="task-btn reply-btn">💬 Reply</button>
                     <button class="task-btn convert-parent-btn">➕ Add sub-tasks</button>
                     <button class="task-btn toggle-goal-btn">${task.isWeeklyGoal ? '⭐ Remove from weekly' : '⭐ Make weekly goal'}</button>
                     <button class="task-btn delete-btn">🗑️ Delete</button>
                 </div>
+                <form class="add-reply-form">
+                    <textarea class="add-reply-input" placeholder="Enter your reply/findings..." required></textarea>
+                    <div class="subtask-form-actions">
+                        <button type="submit" class="btn btn-primary btn-small">Add Reply</button>
+                        <button type="button" class="btn btn-secondary btn-small cancel-reply-btn">Cancel</button>
+                    </div>
+                </form>
                 <form class="add-subtask-form">
                     <textarea class="add-subtask-input" placeholder="Enter sub-task description..." required></textarea>
                     <label class="checkbox-label">
@@ -819,6 +1022,65 @@
             const subtaskForm = taskEl.querySelector('.add-subtask-form');
             const subtaskInput = subtaskForm.querySelector('.add-subtask-input');
             const cancelBtn = subtaskForm.querySelector('.cancel-subtask-btn');
+
+            // Reply functionality
+            const replyBtn = taskEl.querySelector('.reply-btn');
+            const replyForm = taskEl.querySelector('.add-reply-form');
+            const replyInput = replyForm.querySelector('.add-reply-input');
+            const cancelReplyBtn = replyForm.querySelector('.cancel-reply-btn');
+
+            // Show reply form
+            replyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                replyForm.classList.add('active');
+                replyBtn.style.display = 'none';
+                replyInput.focus();
+            });
+
+            // Handle Ctrl+Enter in reply form
+            replyInput.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    replyForm.dispatchEvent(new Event('submit'));
+                }
+            });
+
+            // Submit reply form
+            replyForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const replyText = replyInput.value.trim();
+
+                if (replyText) {
+                    if (!task.replies) task.replies = [];
+                    task.replies.push({
+                        text: replyText,
+                        createdAt: new Date().toISOString()
+                    });
+                    saveTasks();
+                    renderBoard();
+                }
+            });
+
+            // Cancel reply form
+            cancelReplyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                replyForm.classList.remove('active');
+                replyInput.value = '';
+                replyBtn.style.display = 'inline-block';
+            });
+
+            // Delete reply buttons
+            taskEl.querySelectorAll('.delete-reply-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const replyIndex = parseInt(btn.dataset.replyIndex);
+                    if (confirm('Delete this reply?')) {
+                        task.replies.splice(replyIndex, 1);
+                        saveTasks();
+                        renderBoard();
+                    }
+                });
+            });
 
             // Show form when clicking "Add sub-tasks"
             convertBtn.addEventListener('click', (e) => {
@@ -955,7 +1217,7 @@
 
                 // Render parent tasks with their sub-tasks
                 parentsToShow.forEach(parent => {
-                    container.appendChild(createParentTaskElement(parent, column));
+                    container.appendChild(createParentTaskElement(parent, column, hideOldCompleted, lastSunday));
                 });
 
                 // Render standalone tasks
@@ -982,60 +1244,10 @@
         function handleDragEnd(e) {
             this.classList.remove('dragging');
             dragSourceColumn = null; // Clear source column
-            stopAutoScroll(); // Stop auto-scrolling when drag ends
             document.querySelectorAll('.tasks').forEach(col => {
                 col.classList.remove('drag-over');
             });
         }
-
-        // Auto-scroll functionality during drag
-        function startAutoScroll(e) {
-            const scrollZone = 80; // Pixels from edge to trigger scroll
-            const scrollSpeed = 15; // Pixels per frame
-            const mouseY = e.clientY;
-            const windowHeight = window.innerHeight;
-
-            stopAutoScroll(); // Clear any existing interval
-
-            if (mouseY < scrollZone) {
-                // Scroll up
-                autoScrollInterval = setInterval(() => {
-                    window.scrollBy(0, -scrollSpeed);
-                }, 16);
-            } else if (mouseY > windowHeight - scrollZone) {
-                // Scroll down
-                autoScrollInterval = setInterval(() => {
-                    window.scrollBy(0, scrollSpeed);
-                }, 16);
-            }
-        }
-
-        function stopAutoScroll() {
-            if (autoScrollInterval) {
-                clearInterval(autoScrollInterval);
-                autoScrollInterval = null;
-            }
-        }
-
-        // Global drag event listener for auto-scroll
-        document.addEventListener('drag', (e) => {
-            if (draggedTask || draggedSubTask) {
-                // e.clientY can be 0 during drag, use stored position from dragover
-                if (e.clientY !== 0) {
-                    startAutoScroll(e);
-                }
-            }
-        });
-
-        document.addEventListener('dragover', (e) => {
-            if (draggedTask || draggedSubTask) {
-                startAutoScroll(e);
-            }
-        });
-
-        document.addEventListener('dragend', () => {
-            stopAutoScroll();
-        });
 
         // Setup drag and drop for columns
         document.querySelectorAll('.tasks').forEach(column => {
@@ -1237,75 +1449,127 @@
             }
         });
 
-        async function exportTasks() {
+        async function exportTasksWithPicker() {
             const dataStr = JSON.stringify(tasks, null, 2);
             const now = new Date();
             const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            const filename = `tasks-backup-${dateStr}.json`;
-            
-            // Try to use the File System Access API (allows choosing save location)
-            if ('showSaveFilePicker' in window) {
-                try {
-                    const handle = await window.showSaveFilePicker({
-                        suggestedName: filename,
-                        types: [{
-                            description: 'JSON Files',
-                            accept: { 'application/json': ['.json'] }
-                        }]
-                    });
-                    const writable = await handle.createWritable();
-                    await writable.write(dataStr);
-                    await writable.close();
-                    
-                    // Update last export date
-                    localStorage.setItem('lastExportDate', now.toISOString());
-                    return;
-                } catch (err) {
-                    // User cancelled or API not available, fall back to download
-                    if (err.name === 'AbortError') {
-                        return; // User cancelled, don't update lastExportDate
-                    }
+
+            try {
+                // Use File System Access API to let user choose save location
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: `tasks-backup-${dateStr}.json`,
+                    types: [{
+                        description: 'JSON Files',
+                        accept: { 'application/json': ['.json'] }
+                    }]
+                });
+
+                const writable = await handle.createWritable();
+                await writable.write(dataStr);
+                await writable.close();
+
+                // Update last export date
+                localStorage.setItem('lastExportDate', now.toISOString());
+            } catch (err) {
+                // User cancelled the picker or API not supported
+                if (err.name !== 'AbortError') {
+                    // Fallback to standard download if API fails
+                    exportTasksFallback();
                 }
             }
-            
-            // Fallback: standard download (goes to Downloads folder)
+        }
+
+        function exportTasksFallback() {
+            const dataStr = JSON.stringify(tasks, null, 2);
             const dataBlob = new Blob([dataStr], { type: 'application/json' });
             const url = URL.createObjectURL(dataBlob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = filename;
-            
+
+            // Create filename with current date
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            link.download = `tasks-backup-${dateStr}.json`;
+
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
-            
+
             // Update last export date
             localStorage.setItem('lastExportDate', now.toISOString());
+        }
+
+        function exportTasks() {
+            // Check if File System Access API is available
+            if (window.showSaveFilePicker) {
+                exportTasksWithPicker();
+            } else {
+                exportTasksFallback();
+            }
         }
 
         // Check if we should prompt for weekly export
         function checkWeeklyExportPrompt() {
             const lastExport = localStorage.getItem('lastExportDate');
             const lastSunday = getLastSunday();
-            
+
             if (!lastExport) {
                 // First time user - don't prompt immediately
                 return;
             }
-            
+
             const lastExportDate = new Date(lastExport);
-            
-            // If last export was before last Sunday, prompt for backup
+
+            // If last export was before last Sunday, show backup reminder banner
             if (lastExportDate < lastSunday) {
-                setTimeout(() => {
-                    if (confirm('📥 It\'s a new week! Would you like to export a backup of your tasks?')) {
-                        exportTasks();
-                    } else {
-                        // Mark as reminded even if they decline
-                        localStorage.setItem('lastExportDate', new Date().toISOString());
-                    }
-                }, 1000); // Delay 1 second to let the page load
+                showExportReminder();
+            }
+        }
+
+        // Show export reminder banner instead of confirm dialog
+        function showExportReminder() {
+            const banner = document.createElement('div');
+            banner.id = 'export-reminder-banner';
+            banner.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background: #3498db;
+                color: white;
+                padding: 12px 20px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                gap: 15px;
+                z-index: 1000;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            `;
+            banner.innerHTML = `
+                <span>📥 It's a new week! Would you like to export a backup of your tasks?</span>
+                <button id="export-reminder-yes" style="background: white; color: #3498db; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-weight: 600;">Export Backup</button>
+                <button id="export-reminder-no" style="background: transparent; color: white; border: 1px solid white; padding: 6px 16px; border-radius: 4px; cursor: pointer;">Dismiss</button>
+            `;
+            document.body.prepend(banner);
+
+            // Adjust body padding to account for banner
+            document.body.style.paddingTop = '60px';
+
+            document.getElementById('export-reminder-yes').addEventListener('click', () => {
+                exportTasks();
+                closeBanner();
+            });
+
+            document.getElementById('export-reminder-no').addEventListener('click', () => {
+                // Mark as reminded even if they decline
+                localStorage.setItem('lastExportDate', new Date().toISOString());
+                closeBanner();
+            });
+
+            function closeBanner() {
+                banner.remove();
+                document.body.style.paddingTop = '20px';
             }
         }
 
